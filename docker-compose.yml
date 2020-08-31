@@ -1,0 +1,84 @@
+version: '3.7'
+
+services:
+  db:
+    container_name: db
+    image: postgres
+    hostname: db
+    ports:
+      - 5432:5432
+    env_file:
+      - ./.env.prod
+    networks:
+      - service
+
+  server:
+    container_name: server
+    hostname: server
+    expose:
+      - 8000
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    volumes:
+      - ./server:/srv/project
+    command: >
+          bash -c '
+          python manage.py makemigrations &&
+          python manage.py migrate &&
+          gunicorn discounter.wsgi -b 0.0.0.0:8000'
+    env_file:
+      - ./.env.prod
+    depends_on:
+      - db
+      - redis
+    networks: 
+      - service
+
+  redis:
+    container_name: redis
+    image: redis:latest
+    hostname: redis
+    ports:
+      - 6379:6379
+    networks: 
+      - service
+
+
+  celery:
+    container_name: celery
+    build:
+      context: ./server
+    command: 
+      celery -A discounter worker -B
+    volumes:
+      - ./server:/srv/discounter
+    env_file:
+      - ./.env.prod
+    depends_on:
+      - server
+      - redis
+    networks:
+      - service
+
+
+  nginx:
+    container_name: nginx
+    build:
+      context: .
+      dockerfile: ./nginx/Dockerfile
+    restart: always
+    volumes:
+      - ./server/staticfiles/admin:/usr/share/nginx/html/staticfiles/admin
+      - ./server/staticfiles/rest_framework:/usr/share/nginx/html/staticfiles/rest_framework
+    ports:
+      - 80:80
+      - 443:443
+    depends_on:
+      - server
+    networks: 
+      - service
+
+networks:
+  service:
+    driver: bridge
